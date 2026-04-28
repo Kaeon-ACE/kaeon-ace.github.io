@@ -31,6 +31,197 @@
 		<script src="https://cdn.jsdelivr.net/gh/Telos-Project/ACE/Code/ace.js"></script>
 		<script src="https://cdn.jsdelivr.net/gh/Telos-Project/ACE/Code/aceOperators.js"></script>
 
+		<script src="https://cdn.jsdelivr.net/gh/Telos-Project/JustUI/Code/JustUI.js"></script>
+
+		<script>
+
+			function createStartScreen(callback, element, text) {
+
+				text = text != null ? text : "Start";
+
+				let newScreen = element == null;
+
+				if(newScreen) {
+
+					element = JustUI.core.create({
+						style: {
+							position: "absolute",
+							left: "0%",
+							top: "0%",
+							width: "100%",
+							height: "100%",
+							"z-index": "999"
+						}
+					});
+
+					JustUI.core.extend(element);
+				}
+
+				let button = JustUI.core.create(
+					{
+						tag: "button",
+						style: {
+							position: "absolute",
+							left: "50%",
+							top: "50%",
+							width: "30vmin",
+							height: "10vmin",
+							transform: "translate(-50%, -50%)",
+							background: "white",
+							color: "black",
+							"border-radius": "500px",
+							font: "6vmin helvetica"
+						},
+						content: [
+							text
+						]
+					}
+				);
+
+				button.onclick = function() {
+
+					if(!newScreen)
+						element.innerHTML = "";
+
+					callback(element);
+
+					if(newScreen)
+						JustUI.core.remove(element);
+				}
+				
+				JustUI.core.extend(
+					element,
+					JustUI.core.create(
+						{
+							tag: "div",
+							style: {
+								position: "absolute",
+								left: "0%",
+								top: "0%",
+								width: "100%",
+								height: "100%",
+								background: "black"
+							},
+							content: [
+								button
+							]
+						}
+					)
+				);
+			}
+
+			function getPlaying() {
+
+				play.state =
+					play.state != null ?
+						play.state : { };
+
+				return JSON.parse(JSON.stringify(play.state));
+			}
+
+			function play(id, options, element) {
+
+				play.index =
+					play.index != null ?
+						play.index : -1;
+
+				play.state =
+					play.state != null ?
+						play.state : { };
+
+				play.index++;
+
+				options = options != null ? options : { };
+
+				options.style = options.style != null ? options.style : {
+					position: "absolute",
+					left: "0%",
+					top: "0%",
+					width: "100%",
+					height: "100%",
+					border: "none"
+				};
+
+				let player = JustUI.core.create({
+					tag: "iframe",
+					style: options.style,
+					attributes: {
+						src: "https://www.youtube.com/embed/" +
+							id +
+							"?autoplay=1" +
+							(options.loop ?
+								"&playlist=" +
+									(options.list != null ? options.list : id) +
+									"&loop=1" :
+								""
+							) +
+							(options.start != null ?
+								"&start=" + options.start :
+								""
+							),
+						allow: "autoplay"
+					}
+				});
+
+				play.state["" + play.index] = player;
+
+				JustUI.core.extend(
+					element != null ?
+						element :
+						document.documentElement,
+					player
+				);
+
+				return "" + play.index;
+			}
+
+			function playAudio(id, options, element) {
+
+				options = options != null ? options : { };
+				options.style = options.style != null ? options.style : { };
+
+				options.style.display = "none";
+
+				return play(id, options, element);
+			}
+
+			function stop(index) {
+
+				try {
+					JustUI.core.remove(play.state[index]);
+				}
+
+				catch(error) {
+					
+				}
+
+				try {
+					delete play.state[index];
+				}
+
+				catch(error) {
+					
+				}
+			}
+
+			ace.operators.push({
+				onCreate: (context, path, data) => {
+
+					if(Array.isArray(data.properties?.tags) ?
+						data.properties?.tags[0] != "yt" : true) {
+
+						return;
+					}
+
+					return {
+						type: "yt",
+						object: playAudio(data.source, { loop: true })
+					};
+				}
+			});
+
+		</script>
+
 	</head>
 
 	<body>
@@ -39,101 +230,110 @@
 
 		<script>
 
-			ace.run(
-				"#game",
-				{
-					utilities: {
-						myPhysics: {
-							properties: {
-								tags: ["physics", "telos-ace"],
-								info: {
-									direction: [0, -9.81, 0]
-								}
-							}
-						},
-						myCamera: {
-							properties: {
-								tags: ["camera", "telos-ace"],
-								info: {
-									position: [0, 25, -200],
-									target: [0, 0, 0],
-									type: "fly"
-								}
-							}
-						},
-						myLight: {
-							properties: {
-								tags: ["light", "telos-ace"],
-								info: {
-									position: [0, 1, 0],
-									intensity: 1,
-									type: "hemispheric"
-								}
-							}
-						},
-						mySphere: {
-							properties: {
-								tags: ["sphere", "telos-ace"],
-								info: {
-									position: [0, 50, 0],
-									mass: 1,
-									diameter: 25,
-									segments: 32
-								}
-							}
-						},
-						myGround: {
-							properties: {
-								tags: ["ground", "telos-ace"],
-								info: {
-									mass: 0,
-									width: 100,
-									height: 100
-								}
-							}
-						},
-						myScript: {
-							content: `
+			createStartScreen(() => {
 
-								let data = JSON.parse(arguments[0]);
+				ace.run(
+					"#game",
+					{
+						utilities: {
+							myPhysics: {
+								properties: {
+									tags: ["physics", "telos-ace"],
+									info: {
+										direction: [0, -9.81, 0]
+									}
+								}
+							},
+							myCamera: {
+								properties: {
+									tags: ["camera", "telos-ace"],
+									info: {
+										position: [0, 25, -200],
+										target: [0, 0, 0],
+										type: "fly"
+									}
+								}
+							},
+							myLight: {
+								properties: {
+									tags: ["light", "telos-ace"],
+									info: {
+										position: [0, 1, 0],
+										intensity: 1,
+										type: "hemispheric"
+									}
+								}
+							},
+							mySphere: {
+								properties: {
+									tags: ["sphere", "telos-ace"],
+									info: {
+										position: [0, 50, 0],
+										mass: 1,
+										diameter: 25,
+										segments: 32
+									}
+								}
+							},
+							myGround: {
+								properties: {
+									tags: ["ground", "telos-ace"],
+									info: {
+										mass: 0,
+										width: 100,
+										height: 100
+									}
+								}
+							},
+							myYT: {
+								source: "4lFiTOs6q1Y",
+								properties: {
+									tags: ["yt", "telos-ace"]
+								}
+							},
+							myScript: {
+								content: `
 
-								data.utilities.misc.properties.count++;
+									let data = JSON.parse(arguments[0]);
 
-								if(data.utilities.misc.properties.count % 1000 == 0) {
+									data.utilities.misc.properties.count++;
 
-									data.utilities[
-										"ball_" + Math.floor(Math.random() * 10000)
-									] = {
-										properties: {
-											tags: ["sphere", "telos-ace"],
-											info: {
-												position: [Math.random() * 2 - 1, 100, Math.random() * 2 - 1],
-												mass: .1,
-												diameter: 5,
-												segments: 16
+									if(data.utilities.misc.properties.count % 1000 == 0) {
+
+										data.utilities[
+											"ball_" + Math.floor(Math.random() * 10000)
+										] = {
+											properties: {
+												tags: ["sphere", "telos-ace"],
+												info: {
+													position: [Math.random() * 2 - 1, 100, Math.random() * 2 - 1],
+													mass: .1,
+													diameter: 5,
+													segments: 16
+												}
 											}
 										}
 									}
-								}
 
-								return JSON.stringify(data);
-							`,
-							properties: {
-								tags: ["script", "telos-ace"],
-								info: {
-									language: "JS",
-									mode: "JSON"
+									return JSON.stringify(data);
+								`,
+								properties: {
+									tags: ["script", "telos-ace"],
+									info: {
+										language: "JS",
+										mode: "JSON"
+									}
 								}
-							}
-						},
-						misc: {
-							properties: {
-								time: 0
+							},
+							misc: {
+								properties: {
+									time: 0
+								}
 							}
 						}
 					}
-				}
-			);
+				);
+			});
 
 		</script>
 
