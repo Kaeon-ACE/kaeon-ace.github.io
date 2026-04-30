@@ -1,342 +1,234 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VR Smooth Locomotion – BabylonJS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    #renderCanvas { width: 100%; height: 100%; touch-action: none; display: block; }
+    #overlay {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.65); color: #fff; font-family: system-ui, sans-serif;
+      font-size: 13px; padding: 8px 16px; border-radius: 20px;
+      pointer-events: none; white-space: nowrap; letter-spacing: 0.02em;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <div id="overlay">Click "Enter VR" → left thumbstick to fly · right thumbstick to turn</div>
 
-	<head>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
-		<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <script>
+  (function () {
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true, { adaptToDeviceRatio: true });
 
-		<title>Babylon Template</title>
+    const createScene = () => {
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0.08, 0.08, 0.14, 1);
 
-		<style>
+      // ── Camera (fallback for non-VR desktop preview) ──────────────────────
+      const camera = new BABYLON.UniversalCamera(
+        "cam", new BABYLON.Vector3(0, 1.6, -4), scene
+      );
+      camera.minZ = 0.01;
+      camera.attachControl(canvas, true);
+      camera.speed = 0.15;
 
-			html, body {
-				overflow: hidden;
-				width: 100%;
-				height: 100%;
-				margin: 0;
-				padding: 0;
-			}
+      // ── Lighting ──────────────────────────────────────────────────────────
+      const hemi = new BABYLON.HemisphericLight(
+        "hemi", new BABYLON.Vector3(0, 1, 0), scene
+      );
+      hemi.intensity = 0.6;
+      hemi.groundColor = new BABYLON.Color3(0.1, 0.1, 0.2);
 
-			#game {
-				width: 100%;
-				height: 100%;
-			}
+      const dir = new BABYLON.DirectionalLight(
+        "dir", new BABYLON.Vector3(-1, -2, -1), scene
+      );
+      dir.intensity = 0.8;
+      dir.position = new BABYLON.Vector3(5, 8, 5);
 
-		</style>
+      // Soft shadow
+      const shadowGen = new BABYLON.ShadowGenerator(512, dir);
+      shadowGen.useBlurExponentialShadowMap = true;
 
-		<script src="https://cdn.babylonjs.com/babylon.js"></script>
-		<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-		<script src="https://cdn.babylonjs.com/cannon.js"></script>
+      // ── Floor ────────────────────────────────────────────────────────────
+      const floor = BABYLON.MeshBuilder.CreateGround(
+        "floor", { width: 40, height: 40, subdivisions: 2 }, scene
+      );
+      const floorMat = new BABYLON.StandardMaterial("floorMat", scene);
+      floorMat.diffuseColor = new BABYLON.Color3(0.18, 0.18, 0.25);
+      floorMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.1);
+      floor.material = floorMat;
+      floor.receiveShadows = true;
 
-		<script src="https://cdn.jsdelivr.net/gh/Telos-Project/ACE/Code/ace.js"></script>
-		<script src="https://cdn.jsdelivr.net/gh/Telos-Project/ACE/Code/aceOperators.js"></script>
+      // Grid lines on floor (cheap, using line system)
+      const gridLines = [];
+      for (let i = -20; i <= 20; i += 2) {
+        gridLines.push([new BABYLON.Vector3(i, 0.001, -20), new BABYLON.Vector3(i, 0.001, 20)]);
+        gridLines.push([new BABYLON.Vector3(-20, 0.001, i), new BABYLON.Vector3(20, 0.001, i)]);
+      }
+      const grid = BABYLON.MeshBuilder.CreateLineSystem("grid", { lines: gridLines }, scene);
+      grid.color = new BABYLON.Color3(0.28, 0.28, 0.42);
+      grid.alpha = 0.5;
 
-		<script src="https://cdn.jsdelivr.net/gh/Telos-Project/JustUI/Code/JustUI.js"></script>
+      // ── Stationary reference cube ─────────────────────────────────────────
+      const cube = BABYLON.MeshBuilder.CreateBox("cube", { size: 1 }, scene);
+      cube.position.set(0, 0.5, 0);
+      const cubeMat = new BABYLON.StandardMaterial("cubeMat", scene);
+      cubeMat.diffuseColor  = new BABYLON.Color3(0.2, 0.55, 1.0);
+      cubeMat.specularColor = new BABYLON.Color3(0.4, 0.6, 1.0);
+      cubeMat.specularPower = 32;
+      cube.material = cubeMat;
+      shadowGen.addShadowCaster(cube);
+      cube.receiveShadows = true;
 
-		<script>
+      // Gently spin the cube so you can verify you're moving, not it
+      scene.registerBeforeRender(() => {
+        cube.rotation.y += 0.004;
+      });
 
-			function createStartScreen(callback, element, text) {
+      // ── Scatter some landmark objects ─────────────────────────────────────
+      const colors = [
+        new BABYLON.Color3(1.0, 0.35, 0.35),
+        new BABYLON.Color3(0.35, 1.0, 0.55),
+        new BABYLON.Color3(1.0, 0.85, 0.2),
+        new BABYLON.Color3(0.85, 0.35, 1.0),
+        new BABYLON.Color3(0.2, 0.9, 0.9),
+      ];
+      const positions = [
+        [5, 0, 5], [-6, 0, 4], [4, 0, -7], [-5, 0, -5], [8, 0, -2],
+        [-9, 0, 0], [0, 0, 9], [3, 0, 12], [-4, 0, 11], [10, 0, 8],
+      ];
+      positions.forEach(([x, , z], i) => {
+        const h = 0.5 + Math.random() * 1.5;
+        const m = BABYLON.MeshBuilder.CreateBox(`box${i}`, { width: 0.6, height: h, depth: 0.6 }, scene);
+        m.position.set(x, h / 2, z);
+        const mat = new BABYLON.StandardMaterial(`mat${i}`, scene);
+        mat.diffuseColor = colors[i % colors.length];
+        m.material = mat;
+        shadowGen.addShadowCaster(m);
+        m.receiveShadows = true;
+      });
 
-				text = text != null ? text : "Start";
+      // ── Skybox ────────────────────────────────────────────────────────────
+      const sky = BABYLON.MeshBuilder.CreateBox("sky", { size: 200 }, scene);
+      const skyMat = new BABYLON.StandardMaterial("skyMat", scene);
+      skyMat.backFaceCulling = false;
+      skyMat.disableLighting  = true;
+      skyMat.emissiveColor    = new BABYLON.Color3(0.04, 0.04, 0.1);
+      sky.material = skyMat;
+      sky.isPickable = false;
 
-				let newScreen = element == null;
+      // ── WebXR ─────────────────────────────────────────────────────────────
+      // Locomotion state
+      const loco = {
+        moveSpeed:  3.5,   // m/s
+        turnSpeed:  60,    // deg/s
+        deadzone:   0.18,
+        smoothing:  0.12,  // lower = smoother (exponential lerp factor)
+        velX: 0, velZ: 0,  // smoothed velocity
+      };
 
-				if(newScreen) {
+      scene.createDefaultXRExperienceAsync({
+        floorMeshes: [floor],
+        optionalFeatures: true,
+        disableTeleportation: true,   // we handle locomotion ourselves
+      }).then(xr => {
 
-					element = JustUI.core.create({
-						style: {
-							position: "absolute",
-							left: "0%",
-							top: "0%",
-							width: "100%",
-							height: "100%",
-							"z-index": "999"
-						}
-					});
+        if (!xr || !xr.baseExperience) {
+          console.warn("WebXR not available");
+          return;
+        }
 
-					JustUI.core.extend(element);
-				}
+        const xrHelper = xr.baseExperience;
 
-				let button = JustUI.core.create(
-					{
-						tag: "button",
-						style: {
-							position: "absolute",
-							left: "50%",
-							top: "50%",
-							width: "30vmin",
-							height: "10vmin",
-							transform: "translate(-50%, -50%)",
-							background: "white",
-							color: "black",
-							"border-radius": "500px",
-							font: "6vmin helvetica"
-						},
-						content: [
-							text
-						]
-					}
-				);
+        // ── Per-frame locomotion ───────────────────────────────────────────
+        scene.registerBeforeRender(() => {
+          if (xrHelper.state !== BABYLON.WebXRState.IN_XR) return;
 
-				button.onclick = function() {
+          const fm = xr.input?.xrCamera;
+          if (!fm) return;
 
-					if(!newScreen)
-						element.innerHTML = "";
+          let rawMoveX = 0, rawMoveZ = 0, rawTurn = 0;
+          let moveController = null;
 
-					callback(element);
+          // Identify left (move) and right (turn) controllers by handedness
+          for (const ctrl of (xr.input?.controllers ?? [])) {
+            const hand = ctrl.inputSource?.handedness;
+            const gp   = ctrl.inputSource?.gamepad;
+            if (!gp) continue;
 
-					if(newScreen)
-						JustUI.core.remove(element);
-				}
-				
-				JustUI.core.extend(
-					element,
-					JustUI.core.create(
-						{
-							tag: "div",
-							style: {
-								position: "absolute",
-								left: "0%",
-								top: "0%",
-								width: "100%",
-								height: "100%",
-								background: "black"
-							},
-							content: [
-								button
-							]
-						}
-					)
-				);
-			}
+            const axes = gp.axes;  // [touchpad-x, touchpad-y, thumb-x, thumb-y]
+            // Quest 3 thumbstick is axes[2] & axes[3]
+            const tx = axes[2] ?? axes[0] ?? 0;
+            const ty = axes[3] ?? axes[1] ?? 0;
 
-			function getPlaying() {
+            if (hand === "left") {
+              rawMoveX = Math.abs(tx) > loco.deadzone ? tx : 0;
+              rawMoveZ = Math.abs(ty) > loco.deadzone ? ty : 0;
+              moveController = ctrl;
+            } else if (hand === "right") {
+              rawTurn  = Math.abs(tx) > loco.deadzone ? tx : 0;
+            }
+          }
 
-				play.state =
-					play.state != null ?
-						play.state : { };
+          const dt = engine.getDeltaTime() / 1000; // seconds
 
-				return JSON.parse(JSON.stringify(play.state));
-			}
+          // ── Smooth the movement values (exponential lerp) ─────────────────
+          const alpha = 1 - Math.pow(1 - loco.smoothing, dt * 60);
+          loco.velX += (rawMoveX - loco.velX) * alpha;
+          loco.velZ += (rawMoveZ - loco.velZ) * alpha;
 
-			function play(id, options, element) {
+          // ── Direction: project controller orientation onto the XZ plane ───
+          // We use the camera's forward/right so you look where you lean
+          const camForward = xrHelper.camera.getForwardRay().direction;
+          const flatFwd = new BABYLON.Vector3(camForward.x, 0, camForward.z).normalize();
+          const flatRight = BABYLON.Vector3.Cross(BABYLON.Vector3.Up(), flatFwd).normalize();
 
-				play.index =
-					play.index != null ?
-						play.index : -1;
+          const moveVec = flatFwd.scale(-loco.velZ * loco.moveSpeed * dt)
+            .add(flatRight.scale(loco.velX * loco.moveSpeed * dt));
 
-				play.state =
-					play.state != null ?
-						play.state : { };
+          xrHelper.camera.position.addInPlace(moveVec);
 
-				play.index++;
+          // ── Snap turn on right stick ──────────────────────────────────────
+          // Continuous rotation (smooth) in this demo; set to snap if preferred
+          if (Math.abs(rawTurn) > loco.deadzone) {
+            xrHelper.camera.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
+              BABYLON.Vector3.Up(),
+              BABYLON.Quaternion.FromRotationMatrix(
+                xrHelper.camera.getWorldMatrix().getRotationMatrix()
+              ).toEulerAngles().y + rawTurn * (loco.turnSpeed * BABYLON.Tools.ToRadians(1)) * dt
+            ).multiply(xrHelper.camera.rotationQuaternion ?? BABYLON.Quaternion.Identity());
 
-				options = options != null ? options : { };
+            // Simpler: just yaw the XR rig
+            xrHelper.camera.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
+              BABYLON.Vector3.Up(),
+              rawTurn * loco.turnSpeed * BABYLON.Tools.ToRadians(1) * dt
+            ).multiplyInPlace(
+              xrHelper.camera.rotationQuaternion ?? new BABYLON.Quaternion()
+            );
+          }
+        });
 
-				options.style = options.style != null ? options.style : {
-					position: "absolute",
-					left: "0%",
-					top: "0%",
-					width: "100%",
-					height: "100%",
-					border: "none"
-				};
+        // Disable built-in teleport pointer if it was enabled
+        if (xr.teleportation) xr.teleportation.detach();
 
-				let player = JustUI.core.create({
-					tag: "iframe",
-					style: options.style,
-					attributes: {
-						src: "https://www.youtube.com/embed/" +
-							id +
-							"?autoplay=1" +
-							(options.loop ?
-								"&playlist=" +
-									(options.list != null ? options.list : id) +
-									"&loop=1" :
-								""
-							) +
-							(options.start != null ?
-								"&start=" + options.start :
-								""
-							),
-						allow: "autoplay"
-					}
-				});
+      }).catch(err => console.warn("XR init error:", err));
 
-				play.state["" + play.index] = player;
+      return scene;
+    };
 
-				JustUI.core.extend(
-					element != null ?
-						element :
-						document.documentElement,
-					player
-				);
+    const scene = createScene();
 
-				return "" + play.index;
-			}
-
-			function playAudio(id, options, element) {
-
-				options = options != null ? options : { };
-				options.style = options.style != null ? options.style : { };
-
-				options.style.display = "none";
-
-				return play(id, options, element);
-			}
-
-			function stop(index) {
-
-				try {
-					JustUI.core.remove(play.state[index]);
-				}
-
-				catch(error) {
-					
-				}
-
-				try {
-					delete play.state[index];
-				}
-
-				catch(error) {
-					
-				}
-			}
-
-			ace.operators.push({
-				onCreate: (context, path, data) => {
-
-					if(Array.isArray(data.properties?.tags) ?
-						data.properties?.tags[0] != "yt" : true) {
-
-						return;
-					}
-
-					return {
-						type: "yt",
-						object: playAudio(data.source, { loop: true })
-					};
-				}
-			});
-
-		</script>
-
-	</head>
-
-	<body>
-
-		<div id="game"></div>
-
-		<script>
-
-			createStartScreen(() => {
-
-				ace.run(
-					"#game",
-					{
-						utilities: {
-							myPhysics: {
-								properties: {
-									tags: ["physics", "telos-ace"],
-									info: {
-										direction: [0, -9.81, 0]
-									}
-								}
-							},
-							myCamera: {
-								properties: {
-									tags: ["camera", "telos-ace"],
-									info: {
-										position: [0, 25, -200],
-										target: [0, 0, 0],
-										type: "fly"
-									}
-								}
-							},
-							myLight: {
-								properties: {
-									tags: ["light", "telos-ace"],
-									info: {
-										position: [0, 1, 0],
-										intensity: 1,
-										type: "hemispheric"
-									}
-								}
-							},
-							mySphere: {
-								properties: {
-									tags: ["sphere", "telos-ace"],
-									info: {
-										position: [0, 50, 0],
-										mass: 1,
-										diameter: 25,
-										segments: 32
-									}
-								}
-							},
-							myGround: {
-								properties: {
-									tags: ["ground", "telos-ace"],
-									info: {
-										mass: 0,
-										width: 100,
-										height: 100
-									}
-								}
-							},
-							myYT: {
-								source: "4lFiTOs6q1Y",
-								properties: {
-									tags: ["yt", "telos-ace"]
-								}
-							},
-							myScript: {
-								content: `
-
-									let data = JSON.parse(arguments[0]);
-
-									data.utilities.misc.properties.count++;
-
-									if(data.utilities.misc.properties.count % 1000 == 0) {
-
-										data.utilities[
-											"ball_" + Math.floor(Math.random() * 10000)
-										] = {
-											properties: {
-												tags: ["sphere", "telos-ace"],
-												info: {
-													position: [Math.random() * 2 - 1, 100, Math.random() * 2 - 1],
-													mass: .1,
-													diameter: 5,
-													segments: 16
-												}
-											}
-										}
-									}
-
-									return JSON.stringify(data);
-								`,
-								properties: {
-									tags: ["script", "telos-ace"],
-									info: {
-										language: "JS",
-										mode: "JSON"
-									}
-								}
-							},
-							misc: {
-								properties: {
-									time: 0
-								}
-							}
-						}
-					}
-				);
-			});
-
-		</script>
-
-	</body>
-
+    engine.runRenderLoop(() => scene.render());
+    window.addEventListener("resize", () => engine.resize());
+  })();
+  </script>
+</body>
 </html>
