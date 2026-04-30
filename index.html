@@ -129,7 +129,7 @@
       // Locomotion state
       const loco = {
         moveSpeed:  3.5,   // m/s
-        turnSpeed:  .01,    // deg/s
+        turnSpeed:  .0001,    // deg/s
         deadzone:   0.18,
         smoothing:  0.12,  // lower = smoother (exponential lerp factor)
         velX: 0, velZ: 0,  // smoothed velocity
@@ -207,12 +207,12 @@
             ).multiply(xrHelper.camera.rotationQuaternion ?? BABYLON.Quaternion.Identity());
 
             // Simpler: just yaw the XR rig
-            xrHelper.camera.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
-              BABYLON.Vector3.Up(),
-              rawTurn * loco.turnSpeed * BABYLON.Tools.ToRadians(1) * dt
-            ).multiplyInPlace(
-              xrHelper.camera.rotationQuaternion ?? new BABYLON.Quaternion()
-            );
+            // xrHelper.camera.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
+            //   BABYLON.Vector3.Up(),
+            //   rawTurn * loco.turnSpeed * BABYLON.Tools.ToRadians(1) * dt
+            // ).multiplyInPlace(
+            //   xrHelper.camera.rotationQuaternion ?? new BABYLON.Quaternion()
+            // );
           }
         });
 
